@@ -1,0 +1,32 @@
+# Data (raw images, training datasets, crops)
+data/
+
+# Results (generated outputs)
+results/
+
+# Old standalone scripts (kept locally for development)
+src/crop_wells.py
+src/infer_organoids.py
+src/prepare_well_dataset.py
+src/train_well_detector.py
+src/train_organoid_detector.py
+src/compare_manual_vs_model.py
+src/grid_fit_wells.py
+src/infer_wells.py
+
+# Old models directory (models are bundled inside the package)
+/models/
+
+# Internal docs (replaced by README.md)
+INSTRUCTIONS.md
+PROGRESS.md
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# OS
+.DS_Store
