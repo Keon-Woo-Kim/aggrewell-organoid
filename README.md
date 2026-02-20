@@ -25,7 +25,7 @@ conda activate aggrewell
 Then install from the cloned repository:
 
 ```bash
-git clone https://github.com/sigma33030/aggrewell-organoid.git
+git clone https://github.com/Keon-Woo-Kim/aggrewell-organoid.git
 cd aggrewell-organoid
 pip install .
 ```
