@@ -31,14 +31,6 @@ def main():
         help="Path to folder containing plate images (.jpg/.png/.tiff)",
     )
     parser.add_argument(
-        "--rows", type=int, default=4,
-        help="Number of well rows (default: 4)",
-    )
-    parser.add_argument(
-        "--cols", type=int, default=6,
-        help="Number of well columns (default: 6)",
-    )
-    parser.add_argument(
         "--exclude", type=str, default="none",
         help="Well to exclude from analysis, e.g. 'r3c0' (default: none, includes all wells)",
     )
@@ -66,7 +58,7 @@ def main():
 
     print(f"Input:   {image_dir}")
     print(f"Output:  {output_dir}")
-    print(f"Grid:    {args.rows} rows x {args.cols} cols")
+    print(f"Grid:    4 rows x 6 cols")
     print(f"Exclude: {args.exclude}")
     print()
 
@@ -79,8 +71,6 @@ def main():
         model_path=models_dir / "well_detector.pt",
         crop_dir=crop_dir,
         preview_dir=preview_dir,
-        rows=args.rows,
-        cols=args.cols,
     )
 
     # Step 2: Detect organoids

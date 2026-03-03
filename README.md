@@ -11,7 +11,7 @@ This tool detects and measures organoid areas in AggreWell microwell plates. It 
 
 Area is computed as: `organoid_mask_pixels / image_area_pixels * 10000`
 
-![Sample output](docs/sample_output.png)
+![Sample output](docs/sample_output.png?raw=true)
 
 ## Installation
 
@@ -46,22 +46,17 @@ aggrewell-organoid path/to/your/images
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--rows` | 4 | Number of well rows |
-| `--cols` | 6 | Number of well columns |
 | `--exclude` | none | Well to exclude from analysis (e.g. `r3c0`) |
 | `--output` | `results_<foldername>/` next to input | Output directory |
 
 ### Examples
 
 ```bash
-# Default: 4x6 grid, all wells included
+# All wells included
 aggrewell-organoid data/my_experiment
 
 # Exclude a specific well
 aggrewell-organoid data/my_experiment --exclude r3c0
-
-# Custom grid size
-aggrewell-organoid data/my_experiment --rows 3 --cols 4
 
 # Custom output directory
 aggrewell-organoid data/my_experiment --output /path/to/output
@@ -95,6 +90,7 @@ Intermediate outputs:
 ### Step 2: Organoid Segmentation
 
 - YOLOv8n-seg runs instance segmentation on each well crop (imgsz=480, conf=0.5)
+- Maximum 1 organoid reported per well — if multiple are detected, the one closest to the well center is kept
 - Organoid mask area is computed relative to whole image area (consistent across wells)
 - Results are overlaid on original plate images at true positions
 - Per-organoid and per-image statistics are exported to CSV/XLSX
@@ -120,7 +116,13 @@ aggrewell-organoid/
 
 ## Notes
 
-- Default grid: 4 rows x 6 columns (24 wells per image)
+- Fixed grid: 4 rows x 6 columns (24 wells per image; only AggreWell 24-well plates supported)
 - Supported image formats: `.jpg`, `.jpeg`, `.png`, `.tiff`
 - Images should be AggreWell plate photos (tested on 2880x2048)
 - Runs on CPU by default; GPU is used automatically if available
+
+## Changelog
+
+**v1.1.0** (2026-03-03) — Models retrained with hard-case images; max 1 organoid per well enforced; 24-well only
+
+**v1.0.0** (2026-02-21) — Initial release

@@ -87,7 +87,19 @@ def run(image_dir, crop_dir, model_path, output_dir, data_name, exclude_well):
                 n_det = len(r.boxes) if r.boxes is not None else 0
 
                 if n_det > 0 and r.masks is not None:
-                    for i in range(n_det):
+                    # If multiple detections, keep only the one closest to well center
+                    crop_cx, crop_cy = crop_w / 2, crop_h / 2
+                    if n_det > 1:
+                        boxes_xyxy = r.boxes.xyxy.cpu().numpy()
+                        box_centers = (boxes_xyxy[:, :2] + boxes_xyxy[:, 2:]) / 2
+                        dists = np.hypot(box_centers[:, 0] - crop_cx,
+                                         box_centers[:, 1] - crop_cy)
+                        best_i = int(np.argmin(dists))
+                        det_indices = [best_i]
+                    else:
+                        det_indices = [0]
+
+                    for i in det_indices:
                         mask = r.masks.data[i].cpu().numpy()
                         mask_resized = cv2.resize(mask, (crop_w, crop_h))
                         mask_bool = mask_resized > 0.5
@@ -119,14 +131,14 @@ def run(image_dir, crop_dir, model_path, output_dir, data_name, exclude_well):
                             "row": row,
                             "col": col,
                             "well": well_key,
-                            "organoid_idx": i,
+                            "organoid_idx": 0,
                             "area": round(area, 2),
                             "area_px": mask_px,
                             "image_area_px": image_area_px,
                             "confidence": round(conf, 4),
                         })
 
-                    img_organoids += n_det
+                    img_organoids += 1
 
             # Paste annotated crop back onto original image
             vis[y1p:y2p, x1p:x2p] = crop

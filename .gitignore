@@ -1,21 +1,26 @@
 # Data (raw images, training datasets, crops)
 data/
 
-# Results (generated outputs)
-results/
-
-# Old standalone scripts (kept locally for development)
+# Development/training scripts (local only, not part of published package)
 src/crop_wells.py
 src/infer_organoids.py
 src/prepare_well_dataset.py
+src/prepare_organoid_dataset.py
 src/train_well_detector.py
 src/train_organoid_detector.py
 src/compare_manual_vs_model.py
 src/grid_fit_wells.py
 src/infer_wells.py
 
+# Claude Code project settings (local tooling)
+.claude/
+
 # Old models directory (models are bundled inside the package)
 /models/
+
+# YOLO base model downloads (auto-downloaded during training)
+yolov8n.pt
+yolov8n-seg.pt
 
 # Internal docs (replaced by README.md)
 INSTRUCTIONS.md

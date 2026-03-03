@@ -10,6 +10,8 @@ from scipy.spatial.distance import cdist
 PADDING = 10
 INLIER_THRESHOLD = 50
 RANSAC_ITERS = 3000
+ROWS = 4
+COLS = 6
 
 
 def generate_grid(x0, y0, dx, dy, theta, rows, cols):
@@ -214,8 +216,9 @@ def detect_wells_grid(model, img_path, img, h_img, w_img, rows, cols):
     return wells
 
 
-def run(image_dir, model_path, crop_dir, preview_dir, rows, cols):
+def run(image_dir, model_path, crop_dir, preview_dir):
     """Crop wells from all images. Returns crop_dir path."""
+    rows, cols = ROWS, COLS
     image_dir = Path(image_dir)
     crop_dir = Path(crop_dir)
     preview_dir = Path(preview_dir)
