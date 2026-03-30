@@ -124,6 +124,9 @@ def run(image_dir, crop_dir, model_path, output_dir, data_name, exclude_well):
                         cv2.putText(crop, f"{area:.1f}", (bx1, max(by1 - 17, 40)),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 0), 3)
 
+                        # Relative volume (area^1.5, assuming spherical organoid)
+                        volume = area ** 1.5
+
                         # Record for export
                         conf = float(r.boxes.conf[i].cpu().numpy())
                         all_records.append({
@@ -133,6 +136,7 @@ def run(image_dir, crop_dir, model_path, output_dir, data_name, exclude_well):
                             "well": well_key,
                             "organoid_idx": 0,
                             "area": round(area, 2),
+                            "volume": round(volume, 2),
                             "area_px": mask_px,
                             "image_area_px": image_area_px,
                             "confidence": round(conf, 4),
@@ -151,15 +155,17 @@ def run(image_dir, crop_dir, model_path, output_dir, data_name, exclude_well):
         print(f"  {img_name}: {img_organoids} organoids")
 
     # --- Export data ---
-    raw_fields = ["image", "row", "col", "well", "organoid_idx", "area", "area_px", "image_area_px", "confidence"]
+    raw_fields = ["image", "row", "col", "well", "organoid_idx", "area", "volume", "area_px", "image_area_px", "confidence"]
 
-    avg_by_image = defaultdict(list)
+    avg_by_image = defaultdict(lambda: {"areas": [], "volumes": []})
     for rec in all_records:
-        avg_by_image[rec["image"]].append(rec["area"])
+        avg_by_image[rec["image"]]["areas"].append(rec["area"])
+        avg_by_image[rec["image"]]["volumes"].append(rec["volume"])
 
     avg_records = []
     for name in sorted(avg_by_image.keys()):
-        areas = avg_by_image[name]
+        areas = avg_by_image[name]["areas"]
+        volumes = avg_by_image[name]["volumes"]
         avg_records.append({
             "image": name,
             "n_organoids": len(areas),
@@ -168,8 +174,12 @@ def run(image_dir, crop_dir, model_path, output_dir, data_name, exclude_well):
             "min_area": round(np.min(areas), 2),
             "max_area": round(np.max(areas), 2),
             "median_area": round(np.median(areas), 2),
+            "mean_volume": round(np.mean(volumes), 2),
+            "std_volume": round(np.std(volumes), 2),
+            "median_volume": round(np.median(volumes), 2),
         })
-    avg_fields = ["image", "n_organoids", "mean_area", "std_area", "min_area", "max_area", "median_area"]
+    avg_fields = ["image", "n_organoids", "mean_area", "std_area", "min_area", "max_area", "median_area",
+                  "mean_volume", "std_volume", "median_volume"]
 
     # CSV - averaged
     csv_avg_path = output_dir / f"{data_name}.csv"

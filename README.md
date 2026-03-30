@@ -11,6 +11,8 @@ This tool detects and measures organoid areas in AggreWell microwell plates. It 
 
 Area is computed as: `organoid_mask_pixels / image_area_pixels * 10000`
 
+Relative volume is computed as: `area ^ 1.5` (spherical approximation)
+
 ![Sample output](docs/sample_output.png?raw=true)
 
 ## Installation
@@ -69,8 +71,8 @@ Results are saved to the output directory:
 | File | Description |
 |------|-------------|
 | `<name>.xlsx` | Sheet "data" (per-image averages) + sheet "data_raw" (all organoids) |
-| `<name>.csv` | Per-image averaged areas |
-| `<name>_raw.csv` | Individual organoid areas |
+| `<name>.csv` | Per-image averaged areas and volumes |
+| `<name>_raw.csv` | Individual organoid areas and volumes |
 | `*_organoids.jpg` | Annotated plate images with organoid overlays |
 
 Intermediate outputs:
@@ -81,19 +83,16 @@ Intermediate outputs:
 
 ### Step 1: Well Detection + Cropping
 
-- YOLOv8n detects well candidates at low confidence (conf=0.005, top-30)
-- Candidates are filtered by size (70%-130% of median)
-- A 5-parameter affine grid (x0, y0, dx, dy, theta) is fitted via RANSAC (3000 iterations)
-- Grid is refined by least-squares on all inlier detections
-- Each well is cropped at native resolution (no resizing/distortion)
+- YOLOv8n detects well candidates at low confidence, filtered by size
+- A 4×6 affine grid is fitted via RANSAC; spurious edge detections are auto-filtered
+- Misaligned grids are detected by edge crop aspect ratio and corrected via strip-and-redetect
+- Each well is cropped at native resolution with padding
 
 ### Step 2: Organoid Segmentation
 
-- YOLOv8n-seg runs instance segmentation on each well crop (imgsz=480, conf=0.5)
-- Maximum 1 organoid reported per well — if multiple are detected, the one closest to the well center is kept
-- Organoid mask area is computed relative to whole image area (consistent across wells)
-- Results are overlaid on original plate images at true positions
-- Per-organoid and per-image statistics are exported to CSV/XLSX
+- YOLOv8n-seg runs instance segmentation on each well crop
+- Maximum 1 organoid per well (closest to center if multiple detected)
+- Organoid area computed relative to whole image area; exported to CSV/XLSX with overlay images
 
 ## Package Structure
 
@@ -122,6 +121,8 @@ aggrewell-organoid/
 - Runs on CPU by default; GPU is used automatically if available
 
 ## Changelog
+
+**v1.2.0** (2026-03-30) — Improved well cropping robustness; relative volume output; organoid model retrained with atypical morphologies
 
 **v1.1.0** (2026-03-03) — Models retrained with hard-case images; max 1 organoid per well enforced; 24-well only
 

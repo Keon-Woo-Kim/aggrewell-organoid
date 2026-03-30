@@ -12,6 +12,8 @@ INLIER_THRESHOLD = 50
 RANSAC_ITERS = 3000
 ROWS = 4
 COLS = 6
+ASPECT_THRESHOLD = 0.7
+SHIFT_MARGIN = 5
 
 
 def generate_grid(x0, y0, dx, dy, theta, rows, cols):
@@ -78,13 +80,54 @@ def ransac_grid_fit(det_centers, img_w, img_h, rows, cols):
         row = sum(1 for t in row_thresholds[1:] if det_centers[i, 1] > t)
         det_rc.append(row)
 
+    # If more row groups than expected, drop the sparsest groups
+    n_row_groups = max(det_rc) + 1
+    if n_row_groups > rows:
+        group_counts = {}
+        for r in det_rc:
+            group_counts[r] = group_counts.get(r, 0) + 1
+        # Keep the `rows` groups with the most detections
+        keep_groups = sorted(group_counts, key=lambda r: -group_counts[r])[:rows]
+        keep_groups.sort()
+        # Remap row numbers to 0..rows-1
+        remap = {old: new for new, old in enumerate(keep_groups)}
+        keep_mask = [det_rc[i] in remap for i in range(n)]
+        det_centers = det_centers[keep_mask]
+        det_rc = [remap[det_rc[i]] for i in range(n) if det_rc[i] in remap]
+        n = len(det_centers)
+
+    # Assign approximate columns by x-position clustering
+    xs = det_centers[:, 0]
+    x_sorted_vals = np.sort(xs)
+    col_breaks = np.where(np.diff(x_sorted_vals) > 80)[0]
+    if len(col_breaks) < cols - 1:
+        col_breaks = np.where(np.diff(x_sorted_vals) > 50)[0]
+    col_thresholds = [(x_sorted_vals[i] + x_sorted_vals[i + 1]) / 2 for i in col_breaks]
+    col_thresholds = [-np.inf] + col_thresholds + [np.inf]
+
+    det_cc = []
+    for i in range(n):
+        col = sum(1 for t in col_thresholds[1:] if det_centers[i, 0] > t)
+        det_cc.append(col)
+
+    # If more col groups than expected, drop the sparsest groups
+    n_col_groups = max(det_cc) + 1 if det_cc else 0
+    if n_col_groups > cols:
+        group_counts = {}
+        for c in det_cc:
+            group_counts[c] = group_counts.get(c, 0) + 1
+        keep_groups = sorted(group_counts, key=lambda c: -group_counts[c])[:cols]
+        keep_groups.sort()
+        remap = {old: new for new, old in enumerate(keep_groups)}
+        keep_mask = [det_cc[i] in remap for i in range(n)]
+        det_centers = det_centers[keep_mask]
+        det_rc = [det_rc[i] for i in range(n) if keep_mask[i]]
+        det_cc = [remap[det_cc[i]] for i in range(n) if det_cc[i] in remap]
+        n = len(det_centers)
+
     det_assignments = [None] * n
-    for row in range(max(det_rc) + 1):
-        row_indices = [i for i in range(n) if det_rc[i] == row]
-        row_pts = [(det_centers[i, 0], i) for i in row_indices]
-        row_pts.sort()
-        for col, (_, idx) in enumerate(row_pts):
-            det_assignments[idx] = (row, col)
+    for i in range(n):
+        det_assignments[i] = (det_rc[i], det_cc[i])
 
     # RANSAC
     indices = list(range(n))
@@ -164,9 +207,13 @@ def ransac_grid_fit(det_centers, img_w, img_h, rows, cols):
     return best_params, n_inliers
 
 
-def detect_wells_grid(model, img_path, img, h_img, w_img, rows, cols):
-    """Detect wells using YOLOv8 + RANSAC grid fitting."""
-    results = model(str(img_path), imgsz=1280, conf=0.005, iou=0.5, verbose=False)
+def detect_wells_grid(model, img_or_path, img, h_img, w_img, rows, cols):
+    """Detect wells using YOLOv8 + RANSAC grid fitting.
+
+    img_or_path: file path (str/Path) or numpy array for model input.
+    """
+    source = str(img_or_path) if isinstance(img_or_path, (str, Path)) else img_or_path
+    results = model(source, imgsz=1280, conf=0.005, iou=0.5, verbose=False)
     r = results[0]
     if len(r.boxes) == 0:
         return None
@@ -213,7 +260,56 @@ def detect_wells_grid(model, img_path, img, h_img, w_img, rows, cols):
         y2 = int(gy + well_h / 2)
         wells.append((row, col, x1, y1, x2, y2))
 
-    return wells
+    return wells, det_centers
+
+
+def check_edge_crops(wells, h_img, w_img, rows, cols):
+    """Check if edge rows/cols have bad aspect ratios.
+
+    Returns dict with strip info: {'top': height, 'bottom': height,
+                                    'left': width, 'right': width}
+    """
+    crop_info = {}
+    for row, col, x1, y1, x2, y2 in wells:
+        x1p = max(0, x1 - PADDING)
+        y1p = max(0, y1 - PADDING)
+        x2p = min(w_img, x2 + PADDING)
+        y2p = min(h_img, y2 + PADDING)
+        crop_w = x2p - x1p
+        crop_h = y2p - y1p
+        crop_info[(row, col)] = (crop_w, crop_h)
+
+    strips = {}
+
+    # Check edge rows
+    first_row, last_row = 0, rows - 1
+    first_row_aspects = [min(w, h) / max(w, h)
+                         for (r, c), (w, h) in crop_info.items() if r == first_row]
+    last_row_aspects = [min(w, h) / max(w, h)
+                        for (r, c), (w, h) in crop_info.items() if r == last_row]
+
+    if first_row_aspects and np.mean(first_row_aspects) < ASPECT_THRESHOLD:
+        avg_h = int(np.mean([h for (r, c), (w, h) in crop_info.items() if r == first_row]))
+        strips['top'] = avg_h
+    if last_row_aspects and np.mean(last_row_aspects) < ASPECT_THRESHOLD:
+        avg_h = int(np.mean([h for (r, c), (w, h) in crop_info.items() if r == last_row]))
+        strips['bottom'] = avg_h
+
+    # Check edge cols
+    first_col, last_col = 0, cols - 1
+    first_col_aspects = [min(w, h) / max(w, h)
+                         for (r, c), (w, h) in crop_info.items() if c == first_col]
+    last_col_aspects = [min(w, h) / max(w, h)
+                        for (r, c), (w, h) in crop_info.items() if c == last_col]
+
+    if first_col_aspects and np.mean(first_col_aspects) < ASPECT_THRESHOLD:
+        avg_w = int(np.mean([w for (r, c), (w, h) in crop_info.items() if c == first_col]))
+        strips['left'] = avg_w
+    if last_col_aspects and np.mean(last_col_aspects) < ASPECT_THRESHOLD:
+        avg_w = int(np.mean([w for (r, c), (w, h) in crop_info.items() if c == last_col]))
+        strips['right'] = avg_w
+
+    return strips
 
 
 def run(image_dir, model_path, crop_dir, preview_dir):
@@ -240,12 +336,85 @@ def run(image_dir, model_path, crop_dir, preview_dir):
         img = cv2.imread(str(img_path))
         h_img, w_img = img.shape[:2]
 
-        wells = detect_wells_grid(model, img_path, img, h_img, w_img, rows, cols)
-        if wells is None:
+        # Iterative detection: strip bad edge rows/cols and re-detect
+        img_work = img.copy()
+        y_offset, x_offset = 0, 0
+        cur_rows, cur_cols = rows, cols
+
+        result = detect_wells_grid(model, img_path, img_work, h_img, w_img, cur_rows, cur_cols)
+        if result is None:
             print(f"  {fname}: grid-fit failed, skipping")
             continue
+        wells, det_pts = result
+
+        for _attempt in range(3):  # max 3 strip iterations
+            h_work, w_work = img_work.shape[:2]
+            strips = check_edge_crops(wells, h_work, w_work, cur_rows, cur_cols)
+            if not strips:
+                break
+
+            # Track effective image boundary on original image
+            did_strip = False
+            if 'top' in strips and strips['top'] > 0:
+                img_work = img_work[strips['top']:, :]
+                y_offset += strips['top']
+                did_strip = True
+            if 'bottom' in strips and strips['bottom'] > 0:
+                img_work = img_work[:-strips['bottom'], :]
+                did_strip = True
+            if 'left' in strips and strips['left'] > 0:
+                img_work = img_work[:, strips['left']:]
+                x_offset += strips['left']
+                did_strip = True
+            if 'right' in strips and strips['right'] > 0:
+                img_work = img_work[:, :-strips['right']]
+                did_strip = True
+
+            if not did_strip:
+                break
+
+            h_work, w_work = img_work.shape[:2]
+            if h_work < 100 or w_work < 100:
+                wells = None
+                break
+            result = detect_wells_grid(model, img_work, img_work, h_work, w_work,
+                                       cur_rows, cur_cols)
+            if result is None:
+                wells = None
+                break
+            wells, det_pts = result
+
+        if wells is None:
+            print(f"  {fname}: grid-fit failed after stripping, skipping")
+            continue
+
+        # Drop wells that fall outside the stripped image boundary
+        h_work, w_work = img_work.shape[:2]
+        valid_wells = []
+        for r, c, x1, y1, x2, y2 in wells:
+            x1p = max(0, x1 - PADDING)
+            y1p = max(0, y1 - PADDING)
+            x2p = min(w_work, x2 + PADDING)
+            y2p = min(h_work, y2 + PADDING)
+            crop_w = x2p - x1p
+            crop_h = y2p - y1p
+            if crop_w > 0 and crop_h > 0:
+                aspect = min(crop_w, crop_h) / max(crop_w, crop_h)
+                if aspect >= ASPECT_THRESHOLD:
+                    valid_wells.append((r, c, x1, y1, x2, y2))
+        wells = valid_wells
+
+        # Map coordinates back to original image
+        if x_offset > 0 or y_offset > 0:
+            wells = [(r, c, x1 + x_offset, y1 + y_offset, x2 + x_offset, y2 + y_offset)
+                     for r, c, x1, y1, x2, y2 in wells]
+            det_pts = det_pts + np.array([[x_offset, y_offset]])
 
         vis = img.copy()
+        # Draw detection centers (red dots)
+        for cx, cy in det_pts:
+            cv2.circle(vis, (int(cx), int(cy)), 8, (0, 0, 255), -1)
+
         img_coords = {}
         for row, col, x1, y1, x2, y2 in wells:
             x1p = max(0, x1 - PADDING)
